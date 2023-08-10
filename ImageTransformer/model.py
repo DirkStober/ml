@@ -4,15 +4,22 @@ import torch.nn as nn
 import torchvision
 
 #-------------- Hyperparameters -------------- #
-block_size = 64
+block_size = 256
 batch_size = 64
 img_size = 27
-n_embd = 64
-n_head = 8
+n_embd = 128
+n_head = 16
 n_blocks = 4
 eval_iters = 100
 dropout = 0.2
-
+device = (
+        "cuda"
+        if torch.cuda.is_available()
+        else "mps"
+        if torch.backends.mps.is_available()
+        else "cpu"
+    )
+print("Using: " ,device)
 
 # Num_embd//num_head > 0 and should be an integer
 # num_head = 1
@@ -30,8 +37,8 @@ class DataSet():
                 download = True)
         mnist_test = torchvision.datasets.MNIST(root='../data',train=False,
                 download = True)
-        self.train_data =   convertDS(mnist_train,0)
-        self.val_data =     convertDS(mnist_test,0)
+        self.train_data =   convertDS(mnist_train,3)
+        self.val_data =     convertDS(mnist_test,3)
 
     def get_batch(self,split):
         data = self.train_data if split == 'train' else self.val_data
@@ -40,7 +47,7 @@ class DataSet():
         x = torch.stack([data[i].view(-1)[j:j+block_size] for i,j in zip(i_all,j_img)]).long()
         y = torch.stack([data[i].view(-1)[j + 1:j+block_size + 1]for i,j in zip(i_all,j_img)]).long()
         pos_in = j_img.unsqueeze(-1) + torch.arange(block_size)
-        return x,y,pos_in
+        return x.to(device),y.to(device),pos_in.to(device)
 
     @torch.no_grad()
     def estimate_loss(self,model):
@@ -166,12 +173,12 @@ class IT1D(nn.Module):
     def generate(self,idx = torch.zeros(1,1,dtype=torch.long)):
         for i in range(img_size*img_size):
             # Make sure to only input the last 4 values
-            idx_in = idx[:,-block_size:]
-            logits,_ = self(idx_in,torch.tensor(i))
+            idx_in = idx[:,-block_size:].to(device)
+            logits,_ = self(idx_in,torch.tensor(i).to(device))
             logits= logits[:,-1,:]
             probs = F.softmax(logits,dim=-1)
-            idx_next = torch.multinomial(probs,num_samples=1)
-            idx = torch.cat((idx,idx_next),dim=1)
+            idx_next = torch.multinomial(probs,num_samples=1).to(device)
+            idx = torch.cat((idx.to(device),idx_next),dim=1)
         # Extract the image
         idx.squeeze()
         img = idx[:,1:].view(img_size,img_size)
